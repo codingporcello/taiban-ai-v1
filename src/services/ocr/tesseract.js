@@ -24,6 +24,7 @@ export async function recognizeWithTesseract(image, { onProgress } = {}) {
     logger: ({ status, progress = 0 }) => onProgress?.({ status, progress }),
   });
   const text = data.text.trim();
+  const confidence = Math.round(data.confidence || 0);
   return {
     text,
     log: {
@@ -32,6 +33,7 @@ export async function recognizeWithTesseract(image, { onProgress } = {}) {
       openaiApiCalled: false,
       openaiResponseReceived: false,
       textLength: text.length,
+      confidence,
     },
   };
 }

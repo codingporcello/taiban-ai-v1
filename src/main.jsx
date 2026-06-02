@@ -2,13 +2,16 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   AlertTriangle, CalendarDays, CheckCircle2, ChevronRight, ImagePlus,
-  LoaderCircle, MapPin, ScanText, Sparkles, Star, Ticket, Upload, XCircle
+  LoaderCircle, MapPin, Plus, RotateCcw, ScanText, Sparkles, Star, Ticket,
+  Upload, X, XCircle, ZoomIn
 } from 'lucide-react';
 import { DAY_SCORE, GROUP_TIERS, PLACES, RARE_KEYWORDS, SCORE_LIMITS } from './config/scoring.js';
 import { recognizePoster } from './services/ocr/index.js';
 import { detectGroups } from './services/matching/groups.js';
 import { listOtherPrices, mergePrices, parsePrices, selectPrice } from './services/matching/prices.js';
 import './style.css';
+
+const OCR_GROUP_CONFIDENCE_THRESHOLD = 65;
 
 function normalizeText(value) {
   return (value || '').normalize('NFKC').toLowerCase();
@@ -37,9 +40,26 @@ function parsePosterText(text) {
   };
 }
 
-function analyze({ text, manualGroups, day, venue, prices }) {
-  const groupSource = `${text}\n${manualGroups}`;
-  const groups = detectGroups(GROUP_TIERS, groupSource);
+function uniqueGroups(groups) {
+  const unique = new Map();
+  groups.forEach(group => {
+    const previous = unique.get(group.name);
+    if (!previous || (group.confidence || 0) > (previous.confidence || 0)) unique.set(group.name, group);
+  });
+  return [...unique.values()];
+}
+
+function analyze({ text, manualGroups, addedGroups, excludedGroups, day, venue, prices }) {
+  const excluded = new Set(excludedGroups);
+  const textGroups = detectGroups(GROUP_TIERS, text)
+    .filter(group => group.confidence >= OCR_GROUP_CONFIDENCE_THRESHOLD)
+    .map(group => ({ ...group, source: 'OCR / 海報文字' }));
+  const correctedGroups = detectGroups(GROUP_TIERS, manualGroups).map(group => ({ ...group, source: '手動補正' }));
+  const selectedGroups = GROUP_TIERS
+    .filter(group => addedGroups.includes(group.name))
+    .map(group => ({ ...group, confidence: 100, matchType: 'manual', source: '手動新增' }));
+  const groups = uniqueGroups([...textGroups, ...correctedGroups, ...selectedGroups])
+    .filter(group => !excluded.has(group.name));
   const groupScore = Math.min(groups.reduce((sum, group) => sum + group.score, 0), SCORE_LIMITS.group);
   const rareHits = RARE_KEYWORDS.filter(([keyword]) => includesLoose(text, keyword));
   const rareScore = Math.min(rareHits.reduce((sum, [, score]) => sum + score, 0), SCORE_LIMITS.rarity);
@@ -89,6 +109,12 @@ function analyze({ text, manualGroups, day, venue, prices }) {
   return { total, verdict, groups, groupScore, rareHits, rareScore, dayScore, placeScore, priceInfo, selectedPrice, otherPrices, ticketAdvice, highRisk, recommendation, pros, cons };
 }
 
+function createEmptyResult() {
+  return analyze({
+    text: '', manualGroups: '', addedGroups: [], excludedGroups: [], day: '', venue: '', prices: {},
+  });
+}
+
 function App() {
   const [image, setImage] = useState('');
   const [imageFile, setImageFile] = useState(null);
@@ -100,10 +126,58 @@ function App() {
   const [manualPrices, setManualPrices] = useState({ general: '', premium: '', door: '' });
   const [ocrState, setOcrState] = useState({ status: 'idle', progress: 0 });
   const [ocrLog, setOcrLog] = useState(null);
+  const [addedGroups, setAddedGroups] = useState([]);
+  const [excludedGroups, setExcludedGroups] = useState([]);
+  const [animatedScore, setAnimatedScore] = useState(0);
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [imageExpanded, setImageExpanded] = useState(false);
+  const [scoreAnimationKey, setScoreAnimationKey] = useState(0);
+  const [committedSignature, setCommittedSignature] = useState('');
+  const [scoreCardCompact, setScoreCardCompact] = useState(false);
   const prices = useMemo(() => mergePrices(detectedPrices, manualPrices), [detectedPrices, manualPrices]);
-  const result = useMemo(() => analyze({ text, manualGroups, day, venue, prices }), [text, manualGroups, day, venue, prices]);
+  const draftSignature = JSON.stringify({ text, manualGroups, addedGroups, excludedGroups, day, venue, prices });
+  const draftResult = useMemo(() => analyze({
+    text, manualGroups, addedGroups, excludedGroups, day, venue, prices,
+  }), [text, manualGroups, addedGroups, excludedGroups, day, venue, prices]);
+  const [result, setResult] = useState(createEmptyResult);
+  const hasPendingChanges = draftSignature !== committedSignature;
 
   useEffect(() => () => image && URL.revokeObjectURL(image), [image]);
+
+  useEffect(() => {
+    let frame;
+    const start = performance.now();
+    const duration = 720;
+    function animate(now) {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - (1 - progress) ** 3;
+      setAnimatedScore(Math.round(result.total * eased));
+      if (progress < 1) frame = requestAnimationFrame(animate);
+    }
+    setAnimatedScore(0);
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [result.total, scoreAnimationKey]);
+
+  useEffect(() => {
+    function onScroll() {
+      setScoreCardCompact(window.innerWidth > 840 && window.scrollY > 920);
+    }
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, []);
+
+  function runScoring(nextResult = draftResult, nextSignature = draftSignature) {
+    setAnimatedScore(0);
+    setResult(nextResult);
+    setCommittedSignature(nextSignature);
+    setScoreAnimationKey(key => key + 1);
+  }
 
   function applyDetectedText(nextText) {
     const parsed = parsePosterText(nextText);
@@ -118,7 +192,40 @@ function App() {
     if (!file) return;
     setImage(URL.createObjectURL(file));
     setImageFile(file);
+    setImageExpanded(false);
+    setOcrLog(null);
     setOcrState({ status: 'ready', progress: 0 });
+  }
+
+  function addGroup(name) {
+    setAddedGroups(groups => groups.includes(name) ? groups : [...groups, name]);
+    setExcludedGroups(groups => groups.filter(group => group !== name));
+  }
+
+  function removeGroup(name) {
+    setAddedGroups(groups => groups.filter(group => group !== name));
+    setExcludedGroups(groups => groups.includes(name) ? groups : [...groups, name]);
+  }
+
+  function clearAll() {
+    if (image) URL.revokeObjectURL(image);
+    setImage('');
+    setImageFile(null);
+    setText('');
+    setManualGroups('');
+    setDay('土');
+    setVenue('渋谷');
+    setDetectedPrices({});
+    setManualPrices({ general: '', premium: '', door: '' });
+    setOcrState({ status: 'idle', progress: 0 });
+    setOcrLog(null);
+    setAddedGroups([]);
+    setExcludedGroups([]);
+    setImageExpanded(false);
+    setFileInputKey(key => key + 1);
+    setResult(createEmptyResult());
+    setAnimatedScore(0);
+    setCommittedSignature('');
   }
 
   async function runOcr() {
@@ -128,9 +235,21 @@ function App() {
       const { text: nextText, log } = await recognizePoster('tesseract', imageFile, {
         onProgress: ({ status, progress = 0 }) => setOcrState({ status, progress }),
       });
+      const acceptedGroupCount = detectGroups(GROUP_TIERS, nextText)
+        .filter(group => group.confidence >= OCR_GROUP_CONFIDENCE_THRESHOLD).length;
+      const parsed = parsePosterText(nextText);
+      const nextDay = parsed.day || day;
+      const nextVenue = parsed.venue || venue;
       applyDetectedText(nextText);
-      setOcrLog({ ...log, finishedAt: new Date().toISOString() });
+      setOcrLog({ ...log, acceptedGroupCount, finishedAt: new Date().toISOString() });
       setOcrState({ status: 'done', progress: 1 });
+      const nextPrices = mergePrices(parsed.prices, manualPrices);
+      const nextSignature = JSON.stringify({
+        text: nextText, manualGroups, addedGroups, excludedGroups, day: nextDay, venue: nextVenue, prices: nextPrices,
+      });
+      runScoring(analyze({
+        text: nextText, manualGroups, addedGroups, excludedGroups, day: nextDay, venue: nextVenue, prices: nextPrices,
+      }), nextSignature);
     } catch (error) {
       setOcrLog(error.log || {
         provider: 'Tesseract OCR',
@@ -143,6 +262,8 @@ function App() {
       setOcrState({ status: 'error', progress: 0, message: error.message });
     }
   }
+
+  const displayedGroups = result.groups.filter(group => !excludedGroups.includes(group.name));
 
   return (
     <main>
@@ -179,13 +300,23 @@ function App() {
               <div><span className="step">01</span><h2>上傳活動海報</h2></div>
               {image && <span className="mini-status"><CheckCircle2 size={14} /> 已上傳</span>}
             </div>
-            <label className={`dropzone ${image ? 'has-image' : ''}`}>
-              {image
-                ? <img src={image} alt="活動海報預覽" />
-                : <div className="dropzone-empty"><span><ImagePlus size={26} /></span><b>選擇海報圖片</b><small>支援 JPG、PNG、WEBP</small></div>}
-              <input type="file" accept="image/*" onChange={onFile} />
-              {image && <span className="replace"><Upload size={14} /> 更換圖片</span>}
-            </label>
+            {image
+              ? <div className="dropzone has-image poster-preview">
+                <button className="poster-zoom" onClick={() => setImageExpanded(true)}>
+                  <img src={image} alt="活動海報預覽" />
+                  <span><ZoomIn size={14} /> 點擊放大</span>
+                </button>
+                <label className="replace"><Upload size={14} /> 更換圖片<input key={fileInputKey} type="file" accept="image/*" onChange={onFile} /></label>
+              </div>
+              : <label className="dropzone">
+                <div className="dropzone-empty"><span><ImagePlus size={26} /></span><b>選擇海報圖片</b><small>支援 JPG、PNG、WEBP</small></div>
+                <input key={fileInputKey} type="file" accept="image/*" onChange={onFile} />
+              </label>}
+            {imageExpanded && <div className="poster-modal" role="dialog" aria-label="放大海報" onClick={() => setImageExpanded(false)}>
+              <button className="poster-modal-close" onClick={() => setImageExpanded(false)}><X size={18} /> 關閉</button>
+              <img src={image} alt="放大的活動海報，點擊可縮小" />
+              <span>點擊圖片或背景即可返回</span>
+            </div>}
             <div className="ocr-control"><span>免費版 OCR</span><b>Tesseract OCR</b></div>
             <button className="primary-button" disabled={!imageFile || ocrState.status === 'loading'} onClick={runOcr}>
               {ocrState.status === 'loading'
@@ -200,17 +331,23 @@ function App() {
                 <dt>Provider</dt><dd>{ocrLog.provider}</dd>
                 <dt>OpenAI API 呼叫</dt><dd>{ocrLog.openaiApiCalled ? '已呼叫' : '未呼叫'}</dd>
                 <dt>OpenAI 回傳結果</dt><dd>{ocrLog.openaiResponseReceived ? '已收到' : '未收到'}</dd>
+                {ocrLog.confidence != null && <><dt>OCR 辨識信心值</dt><dd>{ocrLog.confidence}%</dd></>}
                 {ocrLog.openaiResponseStatus && <><dt>HTTP 狀態</dt><dd>{ocrLog.openaiResponseStatus}</dd></>}
                 {ocrLog.textLength != null && <><dt>辨識文字長度</dt><dd>{ocrLog.textLength}</dd></>}
                 {ocrLog.updatedAt && <><dt>最後更新</dt><dd>{new Date(ocrLog.updatedAt).toLocaleString()}</dd></>}
               </dl>
+            </div>}
+            {ocrLog?.confidence != null && <div className={`confidence-notice ${ocrLog.acceptedGroupCount ? 'confidence-ok' : 'confidence-low'}`}>
+              <b>OCR 團體辨識信心值：{ocrLog.confidence}%</b>
+              <span>{ocrLog.acceptedGroupCount
+                ? `已辨識 ${ocrLog.acceptedGroupCount} 組達到信心門檻的團體，按下評分按鈕後套用，其餘可在下方手動補正。`
+                : `目前沒有團體達到 ${OCR_GROUP_CONFIDENCE_THRESHOLD}% 門檻，請在下方手動補正。`}</span>
             </div>}
           </section>
 
           <section className="glass form-card">
             <div className="section-heading"><div><span className="step">02</span><h2>確認辨識內容</h2></div></div>
             <label className="field full"><span>海報文字 <small>可手動修正</small></span><textarea value={text} onChange={event => applyDetectedText(event.target.value)} placeholder="OCR 結果會顯示在這裡，也可以直接貼上海報文字。" /></label>
-            <label className="field full"><span>手動補正團名 <small>一行一團，可直接貼上出演清單</small></span><textarea className="group-list" value={manualGroups} onChange={event => setManualGroups(event.target.value)} placeholder={'例如：\nMerry BAD TUNE\nMirror Mirror\nHIBANA'} /></label>
             <div className="form-grid">
               <label className="field"><span><CalendarDays size={15} /> 星期</span><select value={day} onChange={event => setDay(event.target.value)}>{['土', '日', '金', '月', '火', '水', '木'].map(value => <option key={value}>{value}</option>)}</select></label>
               <div className="field full"><span><Ticket size={15} /> 手動修正票價 <small>留白時使用海報辨識結果</small></span><div className="price-grid">
@@ -220,25 +357,44 @@ function App() {
               </div></div>
               <label className="field full"><span><MapPin size={15} /> 會場 / 地區</span><input value={venue} onChange={event => setVenue(event.target.value)} placeholder="例如：渋谷" /></label>
             </div>
+            <label className="field full group-correction"><span>手動補正團名 <small>一行一團，可直接貼上出演清單</small></span><textarea className="group-list" value={manualGroups} onChange={event => setManualGroups(event.target.value)} placeholder={'例如：\nMerry BAD TUNE\nMirror Mirror\nHIBANA'} /></label>
+            <div className="group-picker">
+              <span>所有團體 <small>點選即可加入評分</small></span>
+              <div>{GROUP_TIERS.map(group => {
+                const active = draftResult.groups.some(resultGroup => resultGroup.name === group.name);
+                return <button className={active ? 'active' : ''} key={group.name} onClick={() => addGroup(group.name)} disabled={active}>
+                  <Plus size={12} /><b>{group.tier}</b>{group.name}
+                </button>;
+              })}</div>
+            </div>
           </section>
         </div>
 
         <aside className="result-column">
-          <section className="glass score-card">
+          <section className={`glass score-card ${scoreCardCompact ? 'is-compact' : ''}`}>
             <div className="section-heading"><div><span className="step">03</span><h2>AI 評分結果</h2></div><span className="live"><i /> LIVE</span></div>
-            <div className="score-ring" style={{ '--score': `${result.total * 3.6}deg` }}>
-              <div><strong>{result.total}</strong><small>/ 100</small></div>
+            <div className="score-ring" style={{ '--score': `${animatedScore * 3.6}deg` }}>
+              <div><strong>{animatedScore}</strong><small>/ 100</small></div>
             </div>
+            <button className="score-trigger" onClick={() => runScoring()}>
+              <ScanText size={15} /> {hasPendingChanges ? '重新評分' : '播放動畫'}
+            </button>
+            {hasPendingChanges && <p className="pending-note">條件已變更，按下按鈕後更新評分。</p>}
             <div className="verdict"><span>{result.verdict}</span><p>{result.recommendation}</p></div>
             <div className={`risk ${result.highRisk ? 'risk-high' : ''}`}>
               <AlertTriangle size={17} /><div><small>爆死風險</small><b>{result.highRisk ? '高' : '普通'}</b></div>
             </div>
             <ul className="breakdown">
-              <li><span><Star /> 團體價值</span><b>{result.groupScore}<small>/50</small></b></li>
-              <li><span><Sparkles /> 稀有度</span><b>{result.rareScore}<small>/20</small></b></li>
-              <li><span><CalendarDays /> 日期</span><b>{result.dayScore}<small>/10</small></b></li>
-              <li><span><MapPin /> 地點</span><b>{result.placeScore}<small>/10</small></b></li>
-              <li><span><Ticket /> 票價</span><b>{result.priceInfo.score}<small>/10</small></b></li>
+              {[
+                [Star, '團體價值', result.groupScore, 50],
+                [Sparkles, '稀有度', result.rareScore, 20],
+                [CalendarDays, '日期', result.dayScore, 10],
+                [MapPin, '地點', result.placeScore, 10],
+                [Ticket, '票價', result.priceInfo.score, 10],
+              ].map(([Icon, label, score, limit]) => <li key={label}>
+                <div><span><Icon /> {label}</span><b>{score}<small>/{limit}</small></b></div>
+                <i><em style={{ width: `${score / limit * 100}%` }} /></i>
+              </li>)}
             </ul>
             <div className="price-summary">
               <p><b>推薦使用票價</b><span>{result.selectedPrice ? `${result.selectedPrice.label} ${result.selectedPrice.amount}円` : '票價未辨識'}</span></p>
@@ -254,8 +410,11 @@ function App() {
         <div className="details-grid">
           <div>
             <h3>出演團體</h3>
-            {result.groups.length
-              ? <div className="chips">{result.groups.map(group => <span className={`chip tier-${group.tier}`} key={group.name}><b>{group.tier}</b>{group.name}</span>)}</div>
+            {displayedGroups.length
+              ? <div className="chips">{displayedGroups.map(group => <span className={`chip tier-${group.tier}`} key={group.name}>
+                <b>{group.tier}</b><span>{group.name}<small>{group.source} · {group.confidence}%</small></span>
+                <button aria-label={`刪除 ${group.name}`} onClick={() => removeGroup(group.name)}><X size={12} /></button>
+              </span>)}</div>
               : <p className="muted">貼上海報文字或執行 OCR 後，出演團體會顯示在這裡。</p>}
           </div>
           <div className="insights">
@@ -266,6 +425,7 @@ function App() {
       </section>
 
       <footer><span>TAIBAN AI</span><small>Built for better live decisions <ChevronRight size={13} /></small></footer>
+      <button className="floating-clear" onClick={clearAll}><RotateCcw size={15} /> 全部清除</button>
     </main>
   );
 }
