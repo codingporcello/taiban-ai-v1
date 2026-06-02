@@ -7,6 +7,7 @@ import {
 import { DAY_SCORE, GROUP_TIERS, PLACES, RARE_KEYWORDS, SCORE_LIMITS } from './config/scoring.js';
 import { recognizePoster } from './services/ocr/index.js';
 import { detectGroups } from './services/matching/groups.js';
+import { listOtherPrices, mergePrices, parsePrices, selectPrice } from './services/matching/prices.js';
 import './style.css';
 
 function normalizeText(value) {
@@ -18,7 +19,7 @@ function includesLoose(text, keyword) {
 }
 
 function priceScore(price) {
-  if (!price) return { score: 0, note: '票價尚未輸入' };
+  if (price == null) return { score: 0, note: '票價未辨識，請手動輸入票價' };
   if (price <= 2500) return { score: 10, note: '票價友善，CP 值高' };
   if (price <= 3500) return { score: 8, note: '票價落在合理區間' };
   if (price <= 4500) return { score: 5, note: '票價略高但仍可接受' };
@@ -29,15 +30,14 @@ function priceScore(price) {
 function parsePosterText(text) {
   const place = PLACES.find(([, , aliases]) => aliases.some(alias => includesLoose(text, alias)));
   const day = text.match(/[（(]([月火水木金土日])[）)]/)?.[1];
-  const priceMatch = text.match(/(?:adv|前売(?:り)?|一般|ticket)?\s*[¥￥]\s*([\d,]{3,})/i);
   return {
     day,
     venue: place?.[0],
-    price: priceMatch ? Number(priceMatch[1].replaceAll(',', '')) : undefined,
+    prices: parsePrices(text),
   };
 }
 
-function analyze({ text, manualGroups, day, venue, price }) {
+function analyze({ text, manualGroups, day, venue, prices }) {
   const groupSource = `${text}\n${manualGroups}`;
   const groups = detectGroups(GROUP_TIERS, groupSource);
   const groupScore = Math.min(groups.reduce((sum, group) => sum + group.score, 0), SCORE_LIMITS.group);
@@ -46,11 +46,22 @@ function analyze({ text, manualGroups, day, venue, price }) {
   const dayScore = DAY_SCORE[day] ?? 0;
   const place = PLACES.find(([, , aliases]) => aliases.some(alias => includesLoose(`${venue}\n${text}`, alias)));
   const placeScore = place?.[1] ?? 0;
-  const priceInfo = priceScore(Number(price));
+  const selectedPrice = selectPrice(prices);
+  const otherPrices = listOtherPrices(prices, selectedPrice?.type);
+  const priceInfo = priceScore(selectedPrice?.amount ?? null);
   const total = Math.min(SCORE_LIMITS.total, groupScore + rareScore + dayScore + placeScore + priceInfo.score);
   const premiumGroups = groups.filter(group => ['S', 'A'].includes(group.tier));
   const highRisk = groups.some(group => group.tier === 'S') || premiumGroups.length >= 3;
   const verdict = total >= 80 ? '強烈推薦' : total >= 65 ? '值得一去' : total >= 50 ? '可以觀望' : '建議省下來';
+  const ticketAdvice = selectedPrice == null
+    ? '票價未辨識，請手動輸入票價。'
+    : selectedPrice.type === 'premium'
+      ? '目前只有高價票，建議先確認是否會追加一般票。'
+      : selectedPrice.type === 'door'
+        ? '目前只有当日票，現場票可能較貴。'
+        : prices.premium != null && prices.premium - selectedPrice.amount <= 2000 && total >= 80
+          ? '前方票與一般票差額不大，可考慮前方票。'
+          : '普通票即可。';
   const recommendation = total >= 80
     ? '陣容與條件都很漂亮，普通票可以直接拿下。'
     : total >= 65
@@ -69,10 +80,13 @@ function analyze({ text, manualGroups, day, venue, price }) {
   else if (dayScore <= 3) cons.push('平日活動，需要評估行程成本');
   if (placeScore >= 8) pros.push(`${place?.[0] || venue}交通便利`);
   else if (placeScore <= 2) cons.push('會場地點加分較少');
-  if (priceInfo.score >= 8) pros.push(priceInfo.note);
+  if (selectedPrice == null) cons.push('票價未辨識，請手動輸入票價');
+  else if (priceInfo.score >= 8) pros.push(priceInfo.note);
   else if (priceInfo.score <= 2) cons.push(priceInfo.note);
+  if (selectedPrice?.type === 'premium') cons.push('只有高價票');
+  if (selectedPrice?.type === 'door') cons.push('只有当日票，現場票可能較貴');
 
-  return { total, verdict, groups, groupScore, rareHits, rareScore, dayScore, placeScore, priceInfo, highRisk, recommendation, pros, cons };
+  return { total, verdict, groups, groupScore, rareHits, rareScore, dayScore, placeScore, priceInfo, selectedPrice, otherPrices, ticketAdvice, highRisk, recommendation, pros, cons };
 }
 
 function App() {
@@ -82,10 +96,12 @@ function App() {
   const [manualGroups, setManualGroups] = useState('');
   const [day, setDay] = useState('土');
   const [venue, setVenue] = useState('渋谷');
-  const [price, setPrice] = useState('');
+  const [detectedPrices, setDetectedPrices] = useState({});
+  const [manualPrices, setManualPrices] = useState({ general: '', premium: '', door: '' });
   const [ocrState, setOcrState] = useState({ status: 'idle', progress: 0 });
   const [ocrLog, setOcrLog] = useState(null);
-  const result = useMemo(() => analyze({ text, manualGroups, day, venue, price }), [text, manualGroups, day, venue, price]);
+  const prices = useMemo(() => mergePrices(detectedPrices, manualPrices), [detectedPrices, manualPrices]);
+  const result = useMemo(() => analyze({ text, manualGroups, day, venue, prices }), [text, manualGroups, day, venue, prices]);
 
   useEffect(() => () => image && URL.revokeObjectURL(image), [image]);
 
@@ -94,7 +110,7 @@ function App() {
     setText(nextText);
     if (parsed.day) setDay(parsed.day);
     if (parsed.venue) setVenue(parsed.venue);
-    if (parsed.price) setPrice(parsed.price);
+    setDetectedPrices(parsed.prices);
   }
 
   function onFile(event) {
@@ -182,7 +198,11 @@ function App() {
             <label className="field full"><span>手動補正團名 <small>一行一團，可直接貼上出演清單</small></span><textarea className="group-list" value={manualGroups} onChange={event => setManualGroups(event.target.value)} placeholder={'例如：\nMerry BAD TUNE\nMirror Mirror\nHIBANA'} /></label>
             <div className="form-grid">
               <label className="field"><span><CalendarDays size={15} /> 星期</span><select value={day} onChange={event => setDay(event.target.value)}>{['土', '日', '金', '月', '火', '水', '木'].map(value => <option key={value}>{value}</option>)}</select></label>
-              <label className="field"><span><Ticket size={15} /> 票價</span><div className="suffix"><input type="number" value={price} onChange={event => setPrice(event.target.value)} placeholder="0" /><i>円</i></div></label>
+              <div className="field full"><span><Ticket size={15} /> 手動修正票價 <small>留白時使用海報辨識結果</small></span><div className="price-grid">
+                <label><small>一般票</small><div className="suffix"><input type="number" value={manualPrices.general} onChange={event => setManualPrices(prices => ({ ...prices, general: event.target.value }))} placeholder={detectedPrices.general ?? detectedPrices.adv ?? '未辨識'} /><i>円</i></div></label>
+                <label><small>前方票</small><div className="suffix"><input type="number" value={manualPrices.premium} onChange={event => setManualPrices(prices => ({ ...prices, premium: event.target.value }))} placeholder={detectedPrices.premium ?? '未辨識'} /><i>円</i></div></label>
+                <label><small>当日票</small><div className="suffix"><input type="number" value={manualPrices.door} onChange={event => setManualPrices(prices => ({ ...prices, door: event.target.value }))} placeholder={detectedPrices.door ?? '未辨識'} /><i>円</i></div></label>
+              </div></div>
               <label className="field full"><span><MapPin size={15} /> 會場 / 地區</span><input value={venue} onChange={event => setVenue(event.target.value)} placeholder="例如：渋谷" /></label>
             </div>
           </section>
@@ -205,6 +225,11 @@ function App() {
               <li><span><MapPin /> 地點</span><b>{result.placeScore}<small>/10</small></b></li>
               <li><span><Ticket /> 票價</span><b>{result.priceInfo.score}<small>/10</small></b></li>
             </ul>
+            <div className="price-summary">
+              <p><b>推薦使用票價</b><span>{result.selectedPrice ? `${result.selectedPrice.label} ${result.selectedPrice.amount}円` : '票價未辨識'}</span></p>
+              <p><b>其他票價</b><span>{result.otherPrices.length ? result.otherPrices.map(price => `${price.label} ${price.amount}円`).join('、') : '無'}</span></p>
+              <em>{result.ticketAdvice}</em>
+            </div>
           </section>
         </aside>
       </section>
