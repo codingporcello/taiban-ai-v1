@@ -20,17 +20,17 @@ body::after {
 }
 body::before {
   background:
-    linear-gradient(90deg, rgba(1, 5, 16, .99) 0%, rgba(2, 8, 22, .95) 30%, rgba(2, 10, 27, .68) 62%, rgba(1, 5, 14, .82) 100%),
-    linear-gradient(180deg, rgba(1, 6, 18, .30), rgba(2, 8, 19, .82) 74%, #030711 100%),
+    linear-gradient(90deg, rgba(1, 5, 16, .96) 0%, rgba(2, 8, 22, .88) 29%, rgba(3, 14, 27, .42) 54%, rgba(2, 10, 19, .13) 76%, rgba(2, 8, 17, .24) 100%),
+    linear-gradient(180deg, rgba(2, 12, 23, .08), rgba(2, 11, 22, .16) 44%, rgba(3, 9, 19, .70) 76%, #030711 100%),
     url('./assets/taiban-night-hero.jpg') 68% top / cover no-repeat;
-  filter: saturate(.78) contrast(1.12) brightness(.80);
+  filter: saturate(.92) contrast(1.04) brightness(1.03);
 }
 body::after {
   z-index: 0;
   background:
-    radial-gradient(circle at 75% 20%, rgba(26, 126, 255, .24), transparent 31%),
-    radial-gradient(circle at 36% 52%, rgba(28, 92, 255, .12), transparent 32%),
-    linear-gradient(135deg, rgba(30, 80, 255, .09), transparent 36%);
+    radial-gradient(circle at 78% 20%, rgba(69, 186, 255, .12), transparent 30%),
+    radial-gradient(circle at 36% 52%, rgba(28, 92, 255, .09), transparent 32%),
+    linear-gradient(135deg, rgba(30, 80, 255, .06), transparent 36%);
   mix-blend-mode: screen;
 }
 
@@ -355,9 +355,9 @@ footer small { gap: 3px; color: #5d758c; letter-spacing: .03em; }
 @media (max-width: 480px) {
   body::before {
     background:
-      linear-gradient(180deg, rgba(1, 5, 16, .82) 0%, rgba(1, 7, 18, .90) 29%, #030711 69%),
+      linear-gradient(180deg, rgba(1, 6, 16, .28) 0%, rgba(1, 7, 18, .55) 35%, rgba(2, 8, 18, .88) 68%, #030711 100%),
       url('./assets/taiban-night-hero.jpg') 70% top / auto 520px no-repeat;
-    filter: saturate(.72) contrast(1.10) brightness(.78);
+    filter: saturate(.90) contrast(1.03) brightness(1.02);
   }
   main { padding: 14px; }
   .topbar-meta > span:first-child { display: none; }
