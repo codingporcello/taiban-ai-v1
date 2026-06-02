@@ -147,14 +147,29 @@ function App() {
   return (
     <main>
       <header className="topbar">
-        <div className="brand"><span className="brand-mark"><Sparkles size={18} /></span><b>TAIBAN AI</b></div>
-        <span className="status"><i /> Personal scoring model</span>
+        <div className="brand">
+          <span className="brand-mark"><Sparkles size={18} /></span>
+          <div><b>TAIBAN AI</b><small>LIVE INTELLIGENCE</small></div>
+        </div>
+        <div className="topbar-meta">
+          <span>Tokyo Night Edition</span>
+          <span className="status"><i /> Live scoring</span>
+        </div>
       </header>
 
       <section className="hero">
-        <p className="eyebrow">対バン AI 評分系統</p>
-        <h1>海報丟進來，<br /><span>值不值得去一眼就知道。</span></h1>
-        <p className="hero-copy">辨識出演名單、地點、日期與票價，依照你的偏好即時計算推薦度。</p>
+        <div className="hero-main">
+          <p className="eyebrow"><i /> LIVE HOUSE INTELLIGENCE / TOKYO</p>
+          <h1><span className="hero-jp">対バン</span><br /><span className="hero-ai">AI SCORING</span></h1>
+          <p className="hero-lead">今夜のライブ、行くべき？</p>
+          <p className="hero-copy">上傳活動海報，依照你的偏好即時分析出演陣容、地點、日期與票價。</p>
+          <div className="hero-tags"><span>OCR POSTER SCAN</span><span>PERSONAL RANKING</span><span>FREE MODE</span></div>
+        </div>
+        <div className="hero-panel glass">
+          <span className="hero-panel-label">SYSTEM STATUS</span>
+          <strong><i /> READY TO SCAN</strong>
+          <small>Upload poster / Analyze line-up / Decide tonight</small>
+        </div>
       </section>
 
       <section className="workspace">
