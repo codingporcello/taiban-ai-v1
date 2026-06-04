@@ -24,15 +24,25 @@ export const GROUP_TIERS = [
 
 export const DAY_SCORE = { '土': 10, '日': 10, '金': 7, '月': 3, '火': 0, '水': 0, '木': 0 };
 
-export const PLACES = [
+export const AREAS = [
+  ['渋谷', 10, ['渋谷', 'SHIBUYA']],
+  ['新宿', 8, ['新宿', 'SHINJUKU']],
+  ['品川', 6, ['品川', 'SHINAGAWA']],
+  ['神田', 4, ['神田', 'KANDA']],
+  ['田町', 2, ['田町', 'TAMACHI']],
+  ['川崎', 0, ['川崎', 'KAWASAKI']],
+];
+
+export const VENUES = [
   ['品川インターシティホール', 20, ['品川インターシティホール', '品川インターシティ', 'SHINAGAWA INTERCITY HALL']],
   ['Spotify O-EAST', 16, ['Spotify O-EAST', 'O-EAST', 'OEAST']],
   ['KANDA SQUARE HALL', 12, ['KANDA SQUARE HALL', '神田スクエアホール', '神田スクエア']],
   ['Zepp Shinjuku', 12, ['Zepp Shinjuku', 'ZEPP SHINJUKU', 'Zepp新宿']],
   ['SHIBUYA PLEASURE PLEASURE', 8, ['SHIBUYA PLEASURE PLEASURE', 'PLEASURE PLEASURE']],
   ['Spotify O-WEST', 8, ['Spotify O-WEST', 'O-WEST', 'OWEST']],
+  ['白金高輪SELENE', 4, ['白金高輪SELENE', 'STUDIO SELENE b2', 'SELENE b2', 'セレネ']],
   ['Toyosu PIT', 4, ['Toyosu PIT', '豊洲PIT']],
   ['Veats Shibuya', 0, ['Veats Shibuya', 'VEATS', 'Veats']],
 ];
 
-export const SCORE_LIMITS = { total: 100, group: 50, venue: 20 };
+export const SCORE_LIMITS = { total: 100, group: 50, venue: 20, area: 10 };
