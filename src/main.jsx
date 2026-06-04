@@ -5,7 +5,7 @@ import {
   LoaderCircle, MapPin, Plus, RotateCcw, ScanText, Sparkles, Star, Ticket,
   Upload, X, XCircle, ZoomIn
 } from 'lucide-react';
-import { DAY_SCORE, GROUP_TIERS, PLACES, RARE_KEYWORDS, SCORE_LIMITS } from './config/scoring.js';
+import { DAY_SCORE, GROUP_TIERS, PLACES, SCORE_LIMITS } from './config/scoring.js';
 import { recognizePoster } from './services/ocr/index.js';
 import { detectGroups } from './services/matching/groups.js';
 import { listOtherPrices, mergePrices, parsePrices, selectPrice } from './services/matching/prices.js';
@@ -49,6 +49,10 @@ function uniqueGroups(groups) {
   return [...unique.values()];
 }
 
+function tierClass(tier) {
+  return `tier-${String(tier).replace('+', 'plus')}`;
+}
+
 function analyze({ text, manualGroups, addedGroups, excludedGroups, day, venue, prices }) {
   const excluded = new Set(excludedGroups);
   const textGroups = detectGroups(GROUP_TIERS, text)
@@ -61,16 +65,14 @@ function analyze({ text, manualGroups, addedGroups, excludedGroups, day, venue, 
   const groups = uniqueGroups([...textGroups, ...correctedGroups, ...selectedGroups])
     .filter(group => !excluded.has(group.name));
   const groupScore = Math.min(groups.reduce((sum, group) => sum + group.score, 0), SCORE_LIMITS.group);
-  const rareHits = RARE_KEYWORDS.filter(([keyword]) => includesLoose(text, keyword));
-  const rareScore = Math.min(rareHits.reduce((sum, [, score]) => sum + score, 0), SCORE_LIMITS.rarity);
   const dayScore = DAY_SCORE[day] ?? 0;
   const place = PLACES.find(([, , aliases]) => aliases.some(alias => includesLoose(`${venue}\n${text}`, alias)));
   const placeScore = place?.[1] ?? 0;
   const selectedPrice = selectPrice(prices);
   const otherPrices = listOtherPrices(prices, selectedPrice?.type);
   const priceInfo = priceScore(selectedPrice?.amount ?? null);
-  const total = Math.min(SCORE_LIMITS.total, groupScore + rareScore + dayScore + placeScore + priceInfo.score);
-  const premiumGroups = groups.filter(group => ['S', 'A'].includes(group.tier));
+  const total = Math.min(SCORE_LIMITS.total, groupScore + placeScore + dayScore + priceInfo.score);
+  const premiumGroups = groups.filter(group => ['S', 'A+', 'A'].includes(group.tier));
   const highRisk = groups.some(group => group.tier === 'S') || premiumGroups.length >= 3;
   const verdict = total >= 80 ? '強烈推薦' : total >= 65 ? '值得一去' : total >= 50 ? '可以觀望' : '建議省下來';
   const ticketAdvice = selectedPrice == null
@@ -95,18 +97,17 @@ function analyze({ text, manualGroups, addedGroups, excludedGroups, day, venue, 
   if (groupScore >= 35) pros.push('出演陣容含有多組高順位團體');
   else if (groups.length) pros.push(`已命中 ${groups.length} 組關注團體`);
   else cons.push('尚未命中關注團體');
-  if (rareHits.length) pros.push(`活動含有 ${rareHits.map(([keyword]) => keyword).join('、')} 等稀有條件`);
   if (dayScore >= 7) pros.push('日期落在週末或週五，時間安排友善');
   else if (dayScore <= 3) cons.push('平日活動，需要評估行程成本');
-  if (placeScore >= 8) pros.push(`${place?.[0] || venue}交通便利`);
-  else if (placeScore <= 2) cons.push('會場地點加分較少');
+  if (placeScore >= 16) pros.push(`${place?.[0] || venue} 是高分場地`);
+  else if (placeScore <= 4) cons.push('會場地點加分較少');
   if (selectedPrice == null) cons.push('票價未辨識，請手動輸入票價');
   else if (priceInfo.score >= 8) pros.push(priceInfo.note);
   else if (priceInfo.score <= 2) cons.push(priceInfo.note);
   if (selectedPrice?.type === 'premium') cons.push('只有高價票');
   if (selectedPrice?.type === 'door') cons.push('只有当日票，現場票可能較貴');
 
-  return { total, verdict, groups, groupScore, rareHits, rareScore, dayScore, placeScore, priceInfo, selectedPrice, otherPrices, ticketAdvice, highRisk, recommendation, pros, cons };
+  return { total, verdict, groups, groupScore, dayScore, placeScore, priceInfo, selectedPrice, otherPrices, ticketAdvice, highRisk, recommendation, pros, cons };
 }
 
 function createEmptyResult() {
@@ -121,7 +122,7 @@ function App() {
   const [text, setText] = useState('');
   const [manualGroups, setManualGroups] = useState('');
   const [day, setDay] = useState('土');
-  const [venue, setVenue] = useState('渋谷');
+  const [venue, setVenue] = useState('');
   const [detectedPrices, setDetectedPrices] = useState({});
   const [manualPrices, setManualPrices] = useState({ general: '', premium: '', door: '' });
   const [ocrState, setOcrState] = useState({ status: 'idle', progress: 0 });
@@ -214,7 +215,7 @@ function App() {
     setText('');
     setManualGroups('');
     setDay('土');
-    setVenue('渋谷');
+    setVenue('');
     setDetectedPrices({});
     setManualPrices({ general: '', premium: '', door: '' });
     setOcrState({ status: 'idle', progress: 0 });
@@ -355,14 +356,17 @@ function App() {
                 <label><small>前方票</small><div className="suffix"><input type="number" value={manualPrices.premium} onChange={event => setManualPrices(prices => ({ ...prices, premium: event.target.value }))} placeholder={detectedPrices.premium ?? '未辨識'} /><i>円</i></div></label>
                 <label><small>当日票</small><div className="suffix"><input type="number" value={manualPrices.door} onChange={event => setManualPrices(prices => ({ ...prices, door: event.target.value }))} placeholder={detectedPrices.door ?? '未辨識'} /><i>円</i></div></label>
               </div></div>
-              <label className="field full"><span><MapPin size={15} /> 會場 / 地區</span><input value={venue} onChange={event => setVenue(event.target.value)} placeholder="例如：渋谷" /></label>
+              <label className="field full"><span><MapPin size={15} /> 會場 / 地區 <small>OCR 抓不到時可手動選擇</small></span><select value={venue} onChange={event => setVenue(event.target.value)}>
+                <option value="">請選擇會場</option>
+                {PLACES.map(([name, score]) => <option key={name} value={name}>{name}（{score}分）</option>)}
+              </select></label>
             </div>
             <label className="field full group-correction"><span>手動補正團名 <small>一行一團，可直接貼上出演清單</small></span><textarea className="group-list" value={manualGroups} onChange={event => setManualGroups(event.target.value)} placeholder={'例如：\nMerry BAD TUNE\nMirror Mirror\nHIBANA'} /></label>
             <div className="group-picker">
               <span>所有團體 <small>點選即可加入評分</small></span>
               <div>{GROUP_TIERS.map(group => {
                 const active = draftResult.groups.some(resultGroup => resultGroup.name === group.name);
-                return <button className={active ? 'active' : ''} key={group.name} onClick={() => addGroup(group.name)} disabled={active}>
+                return <button className={`${tierClass(group.tier)} ${active ? 'active' : ''}`} key={group.name} onClick={() => addGroup(group.name)} disabled={active}>
                   <Plus size={12} /><b>{group.tier}</b>{group.name}
                 </button>;
               })}</div>
@@ -387,9 +391,8 @@ function App() {
             <ul className="breakdown">
               {[
                 [Star, '團體價值', result.groupScore, 50],
-                [Sparkles, '稀有度', result.rareScore, 20],
+                [MapPin, '場地', result.placeScore, 20],
                 [CalendarDays, '日期', result.dayScore, 10],
-                [MapPin, '地點', result.placeScore, 10],
                 [Ticket, '票價', result.priceInfo.score, 10],
               ].map(([Icon, label, score, limit]) => <li key={label}>
                 <div><span><Icon /> {label}</span><b>{score}<small>/{limit}</small></b></div>
@@ -411,7 +414,7 @@ function App() {
           <div>
             <h3>出演團體</h3>
             {displayedGroups.length
-              ? <div className="chips">{displayedGroups.map(group => <span className={`chip tier-${group.tier}`} key={group.name}>
+              ? <div className="chips">{displayedGroups.map(group => <span className={`chip ${tierClass(group.tier)}`} key={group.name}>
                 <b>{group.tier}</b><span>{group.name}<small>{group.source} · {group.confidence}%</small></span>
                 <button aria-label={`刪除 ${group.name}`} onClick={() => removeGroup(group.name)}><X size={12} /></button>
               </span>)}</div>

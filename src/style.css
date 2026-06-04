@@ -340,7 +340,7 @@ footer small {
 .field textarea:focus,
 .field select:focus { border-color: rgba(69, 174, 255, .90); box-shadow: 0 0 0 3px rgba(48, 145, 255, .12); }
 .field textarea { min-height: 132px; resize: vertical; line-height: 1.6; }
-.field textarea.group-list { min-height: 112px; }
+.field textarea.group-list { min-height: 76px; }
 .suffix { position: relative; }
 .suffix input { padding-right: 35px; }
 .suffix i { position: absolute; top: 11px; right: 12px; color: #6d849a; font-size: 12px; font-style: normal; }
@@ -469,7 +469,9 @@ footer small {
 .chip button { display: grid; width: 20px; height: 20px; place-items: center; border: 0; border-radius: 50%; color: #7f9bb0; background: transparent; transition: .2s; }
 .chip button:hover { color: #fff; background: rgba(255, 255, 255, .11); }
 .tier-S b { color: #ffd0e6; background: rgba(233, 77, 146, .12); }
+.tier-Aplus b { color: #d4f2ff; background: rgba(58, 186, 255, .20); }
 .tier-A b { color: #a4ddff; background: rgba(53, 160, 255, .15); }
+.tier-Bplus b { color: #9ef0c9; background: rgba(77, 214, 158, .15); }
 .tier-B b { color: #99d4ff; background: rgba(62, 154, 218, .12); }
 .tier-C b { color: #b8bec8; background: rgba(141, 150, 164, .12); }
 .insights { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
